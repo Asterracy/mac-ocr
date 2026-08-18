@@ -4,8 +4,8 @@ import Foundation
 import AppKit
 import CoreGraphics
 
-// mac-vision: 四合一本地视觉识别 (macOS 26)
-// 并行执行: 文字识别 + 人脸检测 + 人体检测 + 图像分类
+// mac-vision: 五合一本地视觉识别 (macOS 26)
+// 并行执行: 文字识别 + 人脸检测 + 人体检测 + 物体检测 + 图像分类
 // 用法: vision-all.swift <图片路径> [--json]
 
 let args = CommandLine.arguments
@@ -26,20 +26,23 @@ guard let img = NSImage(contentsOfFile: path),
 let textThreshold: Float = 0.5
 let faceThreshold: Float = 0.5
 let humanThreshold: Float = 0.4
-let classifyThreshold: Float = 0.3
+let objectThreshold: Float = 0.25
 
 // 结果结构
 struct TextLine { let string: String; let conf: Float }
 struct FaceBox { let x: Double; let y: Double; let w: Double; let h: Double; let conf: Float }
 struct HumanBox { let x: Double; let y: Double; let w: Double; let h: Double; let conf: Float }
+struct ObjectHit { let label: String; let conf: Float; let x: Double; let y: Double; let w: Double; let h: Double }
 struct ClassHit { let label: String; let conf: Float }
 
 var texts: [TextLine] = []
 var faces: [FaceBox] = []
 var humans: [HumanBox] = []
+var objects: [ObjectHit] = []
 var classes: [ClassHit] = []
 var textFiltered = 0
 var faceFiltered = 0
+var objectFiltered = 0
 var classFiltered = 0
 
 // --- ① 文字识别 ---
@@ -70,7 +73,7 @@ let faceReq = VNDetectFaceRectanglesRequest { req, _ in
     }
 }
 
-// --- ③ 人体检测 (macOS 26 替代通用物体检测) ---
+// --- ③ 人体检测 ---
 let humanReq = VNDetectHumanRectanglesRequest { req, _ in
     guard let results = req.results as? [VNHumanObservation] else { return }
     for o in results {
@@ -81,11 +84,12 @@ let humanReq = VNDetectHumanRectanglesRequest { req, _ in
     }
 }
 
-// --- ④ 图像分类 ---
+// --- ④ 图像分类（官方推荐 hasMinimumPrecision 过滤）---
 let classifyReq = VNClassifyImageRequest { req, _ in
     guard let results = req.results as? [VNClassificationObservation] else { return }
+    // 高召回过滤：保留官方认为"属于这张图"的标签，避免上千个垃圾候选
     for o in results {
-        if o.confidence >= classifyThreshold {
+        if o.hasMinimumPrecision(0.1, forRecall: 0.8) {
             classes.append(ClassHit(label: o.identifier, conf: o.confidence))
         } else {
             classFiltered += 1
@@ -93,7 +97,32 @@ let classifyReq = VNClassifyImageRequest { req, _ in
     }
 }
 
-// 并行执行（一次 perform 同时跑 4 个请求）
+// --- ⑤ 物体检测（ObjC 动态派发，编译期类型被 SDK 隐藏但运行时可用）---
+do {
+    if let objCls = NSClassFromString("VNRecognizeObjectsRequest") as? VNRequest.Type {
+        let objReq = objCls.init()
+        let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+        try handler.perform([objReq])
+        // perform 后直接读 results 属性
+        if let results = objReq.results as? [VNRecognizedObjectObservation] {
+            for o in results {
+                for l in o.labels {
+                    if l.confidence >= objectThreshold {
+                        let b = o.boundingBox
+                        objects.append(ObjectHit(label: l.identifier, conf: l.confidence,
+                                                 x: b.origin.x, y: b.origin.y, w: b.size.width, h: b.size.height))
+                    } else {
+                        objectFiltered += 1
+                    }
+                }
+            }
+        }
+    }
+} catch {
+    // 物体检测失败不阻断其他检测
+}
+
+// --- 并行执行其余请求（除物体检测已单独跑）---
 let handler = VNImageRequestHandler(cgImage: cg, options: [:])
 try handler.perform([textReq, faceReq, humanReq, classifyReq])
 
@@ -103,8 +132,9 @@ if asJson {
         "text": texts.map { ["string": $0.string, "confidence": $0.conf] },
         "faces": faces.map { ["x": $0.x, "y": $0.y, "w": $0.w, "h": $0.h, "confidence": $0.conf] },
         "humans": humans.map { ["x": $0.x, "y": $0.y, "w": $0.w, "h": $0.h, "confidence": $0.conf] },
+        "objects": objects.map { ["label": $0.label, "confidence": $0.conf, "x": $0.x, "y": $0.y, "w": $0.w, "h": $0.h] },
         "classes": classes.map { ["label": $0.label, "confidence": $0.conf] },
-        "filtered": ["text": textFiltered, "face": faceFiltered, "class": classFiltered]
+        "filtered": ["text": textFiltered, "face": faceFiltered, "object": objectFiltered, "class": classFiltered]
     ]
     if let data = try? JSONSerialization.data(withJSONObject: jsonObj, options: [.prettyPrinted, .sortedKeys]),
        let str = String(data: data, encoding: .utf8) {
@@ -145,6 +175,18 @@ if asJson {
             print("   人 位置(\(String(format: "%.3f", h.x)), \(String(format: "%.3f", h.y)))  (\(String(format: "%.2f", h.conf)))")
         }
     }
+
+    // 物体
+    print("📦 物体: ", terminator: "")
+    if objects.isEmpty {
+        print("未识别到常见物体")
+    } else {
+        print("\(objects.count) 个")
+        for o in objects {
+            print("   \(o.label)  (\(String(format: "%.2f", o.conf)))")
+        }
+    }
+    if objectFiltered > 0 { print("   ⚠️ 已过滤 \(objectFiltered) 个低置信度物体") }
 
     // 分类
     print("🏷 分类: ", terminator: "")
