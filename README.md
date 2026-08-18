@@ -8,7 +8,7 @@ macOS Vision 本地视觉识别 skill — 让 AI Agent（如 opencode）直接�
 
 ## 功能
 
-- **四合一并行识别**：一次执行 4 个视觉任务——文字识别(OCR) + 人脸检测 + 人体检测 + 图像分类
+- **五合一并行识别**：一次执行 5 个视觉任务——文字识别(OCR) + 人脸检测 + 人体检测 + 物体检测 + 图像分类
 - **中英混合 OCR**：中文(`zh-Hans`) + 英文(`en-US`)，`accurate` 精度
 - **零依赖**：`swift` 解释器直接运行，无需 pip install、无需编译、无需第三方库
 - **本地隐私**：图片不出 Mac，可放心处理医学资料、论文、聊天截图等敏感内容
@@ -87,7 +87,8 @@ done
 - `VNRecognizeTextRequest` — 文字识别
 - `VNDetectFaceRectanglesRequest` — 人脸检测
 - `VNDetectHumanRectanglesRequest` — 人体检测
-- `VNClassifyImageRequest` — 图像分类
+- `VNRecognizeObjectsRequest` — 物体检测（ObjC 动态派发）
+- `VNClassifyImageRequest` — 图像分类（hasMinimumPrecision 高召回过滤）
 
 ```swift
 let handler = VNImageRequestHandler(cgImage: cg, options: [:])
@@ -96,7 +97,7 @@ try handler.perform([textReq, faceReq, humanReq, classifyReq])
 
 ## 注意事项
 
-- **macOS 26 差异**：通用物体检测 API（`VNRecognizeObjectsRequest`）已从编译期移除，本 skill 用人体检测替代；物体/分类标签为英文
+- **macOS 26 差异**：通用物体检测 `VNRecognizeObjectsRequest` 编译期类型被 SDK 隐藏，但运行时可用（ObjC 动态派发绕过）；物体/分类标签为英文
 - **图像分类**候选极多（上千个），阈值过滤是必要设计
 - **手写体**准确率低，不推荐
 
