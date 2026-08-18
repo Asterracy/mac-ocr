@@ -8,7 +8,7 @@ macOS Vision 本地视觉识别 skill — 让 AI Agent（如 opencode）直接�
 
 ## 功能
 
-- **五合一并行识别**：一次执行 5 个视觉任务——文字识别(OCR) + 人脸检测 + 人体检测 + 物体检测 + 图像分类
+- **四合一并行识别**：一次执行 4 个视觉任务——文字识别(OCR) + 文字区域定位 + 物体检测 + 图像分类
 - **中英混合 OCR**：中文(`zh-Hans`) + 英文(`en-US`)，`accurate` 精度
 - **零依赖**：`swift` 解释器直接运行，无需 pip install、无需编译、无需第三方库
 - **本地隐私**：图片不出 Mac，可放心处理医学资料、论文、聊天截图等敏感内容
@@ -85,8 +85,7 @@ done
 核心是 Vision framework 的 4 个请求，一次 `perform()` 并行执行：
 
 - `VNRecognizeTextRequest` — 文字识别
-- `VNDetectFaceRectanglesRequest` — 人脸检测
-- `VNDetectHumanRectanglesRequest` — 人体检测
+- `VNDetectTextRectanglesRequest` — 文字区域定位
 - `VNRecognizeObjectsRequest` — 物体检测（ObjC 动态派发）
 - `VNClassifyImageRequest` — 图像分类（hasMinimumPrecision 高召回过滤）
 
